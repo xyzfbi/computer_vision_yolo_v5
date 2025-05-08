@@ -1,42 +1,56 @@
 import cv2
 import torch
 import time
+from ultralytics import YOLO
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True).to(device).eval()
+# Загрузка локальной модели
+model = YOLO('yolo11n.pt').to(device).eval()
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(4)
 
-
-
-# fps
+# FPS
 prev_time = 0
 fps = 0
 
 while True:
     ret, frame = cap.read()
+    if not ret:
+        break
 
+    with torch.no_grad():
+        results = model(frame, verbose=False)
 
-    with torch.no_grad(), torch.amp.autocast(device_type=device):
-        results = model(frame, size=320)
+    for result in results:
+        boxes = result.boxes.xyxy.cpu().numpy()
+        confidences = result.boxes.conf.cpu().numpy()
+        class_ids = result.boxes.cls.cpu().numpy().astype(int)
 
-    predictions = results.xyxy[0].cpu().numpy()
+        for box, conf, cls_id in zip(boxes, confidences, class_ids):
+            x1, y1, x2, y2 = map(int, box)
+            label = model.names[cls_id]
 
-    for *box, confidence, class_id in predictions:
-        x1, y1, x2, y2 = map(int, box)
-        label = model.names[int(class_id)]
-
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(frame, f"{label} {confidence * 100:.1f}%", (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame,
+                        f"{label} {conf * 100:.1f}%",
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 0),
+                        2)
 
     current_time = time.time()
     fps = 1 / (current_time - prev_time)
     prev_time = current_time
 
-    cv2.putText(frame, f"FPS: {int(fps)}", (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    cv2.putText(frame,
+                f"FPS: {int(fps)}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2)
 
     cv2.imshow("Comp vision", frame)
 
